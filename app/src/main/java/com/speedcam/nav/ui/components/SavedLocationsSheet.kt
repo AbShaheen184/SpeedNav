@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Place
@@ -64,12 +65,14 @@ fun SavedLocationsSheet(
     onDeleteLocation: (Long) -> Unit,
     onAddCurrentLocation: (name: String, category: String) -> Unit,
     onDismiss: () -> Unit,
+    onUpdateLocation: (id: Long, title: String, subtitle: String, category: String) -> Unit = { _, _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
     if (!isOpen) return
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showAddDialog by remember { mutableStateOf(false) }
+    var editingLocation by remember { mutableStateOf<SavedLocationEntity?>(null) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -163,6 +166,7 @@ fun SavedLocationsSheet(
                                 )
                                 onDismiss()
                             },
+                            onEdit = { editingLocation = loc },
                             onDelete = { onDeleteLocation(loc.id) }
                         )
                     }
@@ -182,12 +186,24 @@ fun SavedLocationsSheet(
             }
         )
     }
+
+    if (editingLocation != null) {
+        EditLocationDialog(
+            location = editingLocation!!,
+            onDismiss = { editingLocation = null },
+            onConfirm = { title, subtitle, category ->
+                onUpdateLocation(editingLocation!!.id, title, subtitle, category)
+                editingLocation = null
+            }
+        )
+    }
 }
 
 @Composable
 private fun SavedLocationItem(
     location: SavedLocationEntity,
     onClick: () -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     Surface(
@@ -253,6 +269,21 @@ private fun SavedLocationItem(
                     .padding(end = 4.dp)
             )
 
+            // Edit button
+            IconButton(
+                onClick = onEdit,
+                modifier = Modifier
+                    .size(36.dp)
+                    .testTag("edit_saved_location_${location.id}")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "Edit",
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
             // Delete button
             IconButton(
                 onClick = onDelete,
@@ -269,6 +300,86 @@ private fun SavedLocationItem(
             }
         }
     }
+}
+
+@Composable
+private fun EditLocationDialog(
+    location: SavedLocationEntity,
+    onDismiss: () -> Unit,
+    onConfirm: (title: String, subtitle: String, category: String) -> Unit
+) {
+    var title by remember { mutableStateOf(location.title) }
+    var subtitle by remember { mutableStateOf(location.subtitle) }
+    var category by remember { mutableStateOf(location.category) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit Saved Location") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Place Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = subtitle,
+                    onValueChange = { subtitle = it },
+                    label = { Text("Description / Subtitle") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceAround
+                ) {
+                    val categories = listOf("HOME" to "Home", "WORK" to "Work", "FAVORITE" to "Favorite")
+                    for ((key, label) in categories) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (category == key) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier
+                                .clickable { category = key }
+                                .padding(4.dp)
+                        ) {
+                            Text(
+                                text = label,
+                                color = if (category == key) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (title.isNotBlank()) {
+                        onConfirm(title.trim(), subtitle.trim(), category)
+                    }
+                },
+                enabled = title.isNotBlank()
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @Composable

@@ -26,4 +26,7 @@ interface SavedLocationDao {
 
     @Query("SELECT * FROM saved_locations WHERE latitude = :lat AND longitude = :lon LIMIT 1")
     suspend fun findByCoordinates(lat: Double, lon: Double): SavedLocationEntity?
+
+    @Query("UPDATE saved_locations SET title = :title, subtitle = :subtitle, category = :category WHERE id = :id")
+    suspend fun updateLocation(id: Long, title: String, subtitle: String, category: String)
 }
