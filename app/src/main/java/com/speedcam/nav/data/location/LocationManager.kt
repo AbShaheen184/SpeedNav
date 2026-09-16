@@ -121,15 +121,20 @@ class LocationManager(private val context: Context) {
             var currentIndex = 0
             var currentSpeed = 0f
 
+            var currentBearing = -1f
+
             while (isActive && _isSimulating.value && currentIndex < waypoints.size - 1) {
                 val currentPt = waypoints[currentIndex]
                 val nextPt = waypoints[currentIndex + 1]
 
-                // Calculate bearing towards next point
-                val bearing = calculateBearing(
+                // Calculate target bearing towards next point
+                val targetBearing = calculateBearing(
                     currentPt.first, currentPt.second,
                     nextPt.first, nextPt.second
                 )
+                if (currentBearing < 0f) {
+                    currentBearing = targetBearing
+                }
 
                 // Accelerate or vary speed naturally
                 val speedObjective = if (speedVary) {
@@ -149,11 +154,19 @@ class LocationManager(private val context: Context) {
                     val interpolatedLat = currentPt.first + (nextPt.first - currentPt.first) * fraction
                     val interpolatedLon = currentPt.second + (nextPt.second - currentPt.second) * fraction
 
+                    // Shortest-path angular bearing interpolation to completely remove turn snapping jitter
+                    var angleDiff = targetBearing - currentBearing
+                    while (angleDiff < -180f) angleDiff += 360f
+                    while (angleDiff > 180f) angleDiff -= 360f
+                    
+                    // Smoothly approach target bearing across micro-steps
+                    val stepBearing = (currentBearing + angleDiff * (step.toFloat() / steps) + 360f) % 360f
+
                     val point = LocationPoint(
                         latitude = interpolatedLat,
                         longitude = interpolatedLon,
                         speedKmh = currentSpeed,
-                        bearing = bearing,
+                        bearing = stepBearing,
                         accuracy = 4.0f,
                         altitude = 45.0,
                         timestamp = System.currentTimeMillis(),
@@ -163,6 +176,7 @@ class LocationManager(private val context: Context) {
                     _simulationLocation.value = point
                     delay(100L)
                 }
+                currentBearing = targetBearing
                 currentIndex++
             }
             // Emit final item at the end of the line

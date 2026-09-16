@@ -104,19 +104,22 @@ fun MapViewContainer(
                 18.2
             }
 
+            if (mapView.zoomLevelDouble != targetZoom) {
+                mapView.controller.setZoom(targetZoom)
+            }
+
             if (isFollowMode) {
                 // Heads-up perspective: orient map so user travels forward (towards top of screen)
                 if (currentLocation.speedKmh > 3f) {
                     mapView.mapOrientation = -currentLocation.bearing
                 }
-                mapView.controller.animateTo(vehicleGeo, targetZoom, 120L)
+                mapView.setExpectedCenter(vehicleGeo)
             }
         } else {
             // Browsing / overview mode: North-up orientation
             mapView.mapOrientation = 0f
             if (isFollowMode) {
-                val browsingZoom = if (currentRoute != null) 15.5 else 16.5
-                mapView.controller.animateTo(vehicleGeo, browsingZoom, 120L)
+                mapView.setExpectedCenter(vehicleGeo)
             }
         }
         mapView.invalidate()
