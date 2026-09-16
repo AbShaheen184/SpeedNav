@@ -11,17 +11,9 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
@@ -34,16 +26,6 @@ class LocationManager(private val context: Context) {
     private var lastBearing: Float = 0f
     private var lastSpeedKmh: Float = 0f
 
-    // Simulated drive state
-    private val _isSimulating = MutableStateFlow(false)
-    val isSimulating = _isSimulating.asStateFlow()
-
-    private val _simulationLocation = MutableStateFlow<LocationPoint?>(null)
-    val simulationLocation = _simulationLocation.asStateFlow()
-
-    private var simulationJob: Job? = null
-    private val scope = CoroutineScope(Dispatchers.Default)
-
     @SuppressLint("MissingPermission")
     fun getLocationUpdates(intervalMs: Long = 1000L): Flow<LocationPoint> = callbackFlow {
         val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMs)
@@ -55,9 +37,7 @@ class LocationManager(private val context: Context) {
             override fun onLocationResult(result: LocationResult) {
                 result.lastLocation?.let { loc ->
                     val point = processRawLocation(loc)
-                    if (!_isSimulating.value) {
-                        trySend(point)
-                    }
+                    trySend(point)
                 }
             }
         }
@@ -65,7 +45,7 @@ class LocationManager(private val context: Context) {
         try {
             fusedClient.requestLocationUpdates(request, callback, Looper.getMainLooper())
             fusedClient.lastLocation.addOnSuccessListener { loc ->
-                if (loc != null && !_isSimulating.value) {
+                if (loc != null) {
                     trySend(processRawLocation(loc))
                 }
             }
@@ -103,106 +83,6 @@ class LocationManager(private val context: Context) {
             timestamp = loc.time,
             hasSpeed = loc.hasSpeed()
         )
-    }
-
-    /**
-     * Start a simulation drive along the given route waypoints or around an area.
-     */
-    fun startSimulation(
-        waypoints: List<Pair<Double, Double>>,
-        targetSpeedKmh: Float = 85f,
-        speedVary: Boolean = true
-    ) {
-        if (waypoints.isEmpty()) return
-        stopSimulation()
-
-        _isSimulating.value = true
-        simulationJob = scope.launch {
-            var currentIndex = 0
-            var currentSpeed = 0f
-
-            var currentBearing = -1f
-
-            while (isActive && _isSimulating.value && currentIndex < waypoints.size - 1) {
-                val currentPt = waypoints[currentIndex]
-                val nextPt = waypoints[currentIndex + 1]
-
-                // Calculate target bearing towards next point
-                val targetBearing = calculateBearing(
-                    currentPt.first, currentPt.second,
-                    nextPt.first, nextPt.second
-                )
-                if (currentBearing < 0f) {
-                    currentBearing = targetBearing
-                }
-
-                // Accelerate or vary speed naturally
-                val speedObjective = if (speedVary) {
-                    val variation = kotlin.math.sin(currentIndex * 0.4) * 20f
-                    (targetSpeedKmh + variation).toFloat().coerceIn(35f, 135f)
-                } else {
-                    targetSpeedKmh
-                }
-
-                currentSpeed += (speedObjective - currentSpeed) * 0.25f
-
-                // Interpolate 10 micro-steps between currentPt and nextPt for high-fidelity 100ms refresh rate
-                val steps = 10
-                for (step in 0 until steps) {
-                    if (!isActive || !_isSimulating.value) break
-                    val fraction = step.toDouble() / steps
-                    val interpolatedLat = currentPt.first + (nextPt.first - currentPt.first) * fraction
-                    val interpolatedLon = currentPt.second + (nextPt.second - currentPt.second) * fraction
-
-                    // Shortest-path angular bearing interpolation to completely remove turn snapping jitter
-                    var angleDiff = targetBearing - currentBearing
-                    while (angleDiff < -180f) angleDiff += 360f
-                    while (angleDiff > 180f) angleDiff -= 360f
-                    
-                    // Smoothly approach target bearing across micro-steps
-                    val stepBearing = (currentBearing + angleDiff * (step.toFloat() / steps) + 360f) % 360f
-
-                    val point = LocationPoint(
-                        latitude = interpolatedLat,
-                        longitude = interpolatedLon,
-                        speedKmh = currentSpeed,
-                        bearing = stepBearing,
-                        accuracy = 4.0f,
-                        altitude = 45.0,
-                        timestamp = System.currentTimeMillis(),
-                        hasSpeed = true
-                    )
-
-                    _simulationLocation.value = point
-                    delay(100L)
-                }
-                currentBearing = targetBearing
-                currentIndex++
-            }
-            // Emit final item at the end of the line
-            if (isActive && _isSimulating.value && waypoints.isNotEmpty()) {
-                val lastPt = waypoints.last()
-                _simulationLocation.value = LocationPoint(
-                    latitude = lastPt.first,
-                    longitude = lastPt.second,
-                    speedKmh = currentSpeed,
-                    bearing = _simulationLocation.value?.bearing ?: 0f,
-                    accuracy = 4.0f,
-                    altitude = 45.0,
-                    timestamp = System.currentTimeMillis(),
-                    hasSpeed = true
-                )
-            }
-            // Loop or finish
-            stopSimulation()
-        }
-    }
-
-    fun stopSimulation() {
-        simulationJob?.cancel()
-        simulationJob = null
-        _isSimulating.value = false
-        _simulationLocation.value = null
     }
 
     private fun calculateBearing(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {

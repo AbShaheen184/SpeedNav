@@ -195,7 +195,7 @@ fun HomeScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Tap enable or use 'Test Drive' to simulate route.",
+                                text = "Grant permission for turn-by-turn navigation.",
                                 color = Color(0xFF94A3B8),
                                 fontSize = 11.sp
                             )
@@ -227,8 +227,6 @@ fun HomeScreen(
             onToggleDarkMapTheme = { viewModel.toggleDarkMapTheme() },
             isMuted = uiState.isMuted,
             onToggleMute = { viewModel.toggleMute() },
-            isSimulating = uiState.isSimulating,
-            onToggleSimulation = { viewModel.toggleSimulation() },
             onCycleSpeedLimit = { showSpeedLimitPicker = true },
             onOpenSavedLocations = { viewModel.setShowSavedLocationsSheet(true) },
             modifier = Modifier

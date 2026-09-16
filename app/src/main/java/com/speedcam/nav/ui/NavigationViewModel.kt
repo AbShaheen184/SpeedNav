@@ -45,7 +45,6 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
 
     init {
         startLocationUpdates()
-        observeSimulation()
         observeSavedLocations()
     }
 
@@ -53,19 +52,7 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         locationJob?.cancel()
         locationJob = viewModelScope.launch {
             locationManager.getLocationUpdates().collect { point ->
-                if (!_uiState.value.isSimulating) {
-                    handleNewLocation(point)
-                }
-            }
-        }
-    }
-
-    private fun observeSimulation() {
-        viewModelScope.launch {
-            locationManager.simulationLocation.collect { simPoint ->
-                if (_uiState.value.isSimulating && simPoint != null) {
-                    handleNewLocation(simPoint)
-                }
+                handleNewLocation(point)
             }
         }
     }
@@ -416,16 +403,12 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                 statusMessage = "Navigation started. Follow route."
             )
         }
-
-        // Start drive simulation along route so user immediately sees real-time progress and zoom transitions
-        startSimulation()
     }
 
     /**
      * Stop active navigation and return to normal map overview
      */
     fun exitNavigation() {
-        stopSimulation()
         _uiState.update {
             it.copy(
                 isNavigating = false,
@@ -436,7 +419,6 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun clearRoute() {
-        stopSimulation()
         _uiState.update {
             it.copy(
                 currentRoute = null,
@@ -451,51 +433,6 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                 isApproachingTurnOrExit = false
             )
         }
-    }
-
-    fun toggleSimulation() {
-        if (_uiState.value.isSimulating) {
-            stopSimulation()
-        } else {
-            startSimulation()
-        }
-    }
-
-    private fun startSimulation() {
-        val route = _uiState.value.currentRoute
-        val currentLoc = _uiState.value.currentLocation
-        val baseLat = currentLoc?.latitude ?: 51.5074
-        val baseLon = currentLoc?.longitude ?: -0.1278
-
-        val waypoints = if (route != null && route.waypoints.size >= 2) {
-            route.waypoints
-        } else {
-            listOf(
-                Pair(baseLat, baseLon),
-                Pair(baseLat + 0.0015, baseLon + 0.0010),
-                Pair(baseLat + 0.0030, baseLon + 0.0025),
-                Pair(baseLat + 0.0045, baseLon + 0.0038),
-                Pair(baseLat + 0.0060, baseLon + 0.0050),
-                Pair(baseLat + 0.0072, baseLon + 0.0060),
-                Pair(baseLat + 0.0085, baseLon + 0.0070),
-                Pair(baseLat + 0.0105, baseLon + 0.0085),
-                Pair(baseLat + 0.0125, baseLon + 0.0075),
-                Pair(baseLat + 0.0135, baseLon + 0.0050),
-                Pair(baseLat + 0.0120, baseLon + 0.0020),
-                Pair(baseLat + 0.0090, baseLon),
-                Pair(baseLat + 0.0050, baseLon - 0.0010),
-                Pair(baseLat + 0.0020, baseLon - 0.0005),
-                Pair(baseLat, baseLon)
-            )
-        }
-
-        _uiState.update { it.copy(isSimulating = true, isFollowMode = true) }
-        locationManager.startSimulation(waypoints, targetSpeedKmh = 80f, speedVary = true)
-    }
-
-    fun stopSimulation() {
-        locationManager.stopSimulation()
-        _uiState.update { it.copy(isSimulating = false) }
     }
 
     fun toggleFollowMode() {
@@ -528,7 +465,6 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
 
     override fun onCleared() {
         super.onCleared()
-        locationManager.stopSimulation()
         alertSoundManager.release()
     }
 }

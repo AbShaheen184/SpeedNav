@@ -1,6 +1,5 @@
 package com.speedcam.nav.ui.components
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -51,17 +50,10 @@ fun NavigationHudControls(
     onToggleDarkMapTheme: () -> Unit,
     isMuted: Boolean,
     onToggleMute: () -> Unit,
-    isSimulating: Boolean,
-    onToggleSimulation: () -> Unit,
     onCycleSpeedLimit: () -> Unit,
     onOpenSavedLocations: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val simBgColor by animateColorAsState(
-        targetValue = if (isSimulating) Color(0xFF10B981) else Color(0xDD0F172A),
-        label = "sim_color"
-    )
-
     Column(
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -168,37 +160,6 @@ fun NavigationHudControls(
                     contentDescription = "Re-center / Follow",
                     tint = if (isFollowMode) Color(0xFF0F172A) else Color.White,
                     modifier = Modifier.size(24.dp)
-                )
-            }
-        }
-
-        // Simulation Drive Button
-        Surface(
-            onClick = onToggleSimulation,
-            shape = RoundedCornerShape(24.dp),
-            color = simBgColor,
-            modifier = Modifier
-                .shadow(10.dp, RoundedCornerShape(24.dp))
-                .border(1.dp, Color(0x44FFFFFF), RoundedCornerShape(24.dp))
-                .testTag("toggle_simulation_button")
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.DirectionsCar,
-                    contentDescription = "Simulate Drive",
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = if (isSimulating) "STOP SIM" else "TEST DRIVE",
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
                 )
             }
         }

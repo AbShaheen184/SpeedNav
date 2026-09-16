@@ -3,10 +3,12 @@ package com.speedcam.nav.ui.components
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.ColorFilter
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -75,8 +77,16 @@ fun MapViewContainer(
         }
     }
 
+    // Persistent vehicle marker to prevent laggy recreation
+    val vehicleMarker = remember {
+        Marker(mapView).apply {
+            id = "VEHICLE_MARKER"
+        }
+    }
+
     // Apply Dark/Light theme tiles color filter
     LaunchedEffect(isDarkMapTheme) {
+
         if (isDarkMapTheme) {
             val darkMatrix = ColorMatrix(
                 floatArrayOf(
@@ -138,21 +148,19 @@ fun MapViewContainer(
         if (currentLocation == null) return@LaunchedEffect
         val vehicleGeo = GeoPoint(currentLocation.latitude, currentLocation.longitude)
 
-        // Remove old vehicle markers
-        val existingVehicleMarkers = mapView.overlays.filterIsInstance<Marker>()
-            .filter { it.id == "VEHICLE_MARKER" }
-        mapView.overlays.removeAll(existingVehicleMarkers)
-
-        // Create sleek vehicle marker with directional arrow
-        val vehicleMarker = Marker(mapView).apply {
-            id = "VEHICLE_MARKER"
+        // Update existing persistent marker instead of recreating it
+        vehicleMarker.apply {
             position = vehicleGeo
-            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
             rotation = currentLocation.bearing
             icon = createVehicleIcon(context, currentLocation.speedKmh > 2f)
             title = "Current Position: ${currentLocation.speedKmh.toInt()} km/h"
         }
-        mapView.overlays.add(vehicleMarker)
+
+        // Ensure the marker is actually in the overlays
+        if (!mapView.overlays.contains(vehicleMarker)) {
+            mapView.overlays.add(vehicleMarker)
+        }
+        
         mapView.invalidate()
     }
 
@@ -291,26 +299,78 @@ private fun createCameraIcon(context: Context, type: CameraType, speedLimit: Int
     }
     canvas.drawPath(pointer, paint)
 
-    // Inner White Disc
-    paint.color = android.graphics.Color.WHITE
+    // Inner White Disc for the symbol
+    paint.color = Color.WHITE
     canvas.drawCircle(width / 2f, 38f, 26f, paint)
 
-    // Inner Text or Speed Limit
-    paint.color = android.graphics.Color.BLACK
-    paint.textAlign = Paint.Align.CENTER
-    if (speedLimit != null) {
-        paint.textSize = 22f
-        paint.isFakeBoldText = true
-        canvas.drawText("$speedLimit", width / 2f, 46f, paint)
-    } else {
-        paint.textSize = 18f
-        paint.isFakeBoldText = true
-        val label = when (type) {
-            CameraType.RED_LIGHT -> "RL"
-            CameraType.SEATBELT_PHONE -> "AI"
-            else -> "CAM"
+    // Draw specialized symbol based on camera type
+    paint.color = pinColor
+    paint.strokeWidth = 3f
+    paint.style = Paint.Style.STROKE
+    
+    when (type) {
+        CameraType.SPEED -> {
+            // Draw a mini speedometer arc and needle
+            paint.style = Paint.Style.STROKE
+            canvas.drawArc(width / 2f - 15f, 38f - 15f, width / 2f + 15f, 38f + 15f, 180f, 180f, false, paint)
+            paint.style = Paint.Style.FILL
+            canvas.drawRect(width / 2f - 1f, 38f - 12f, width / 2f + 1f, 38f, paint)
         }
-        canvas.drawText(label, width / 2f, 45f, paint)
+        CameraType.RED_LIGHT -> {
+            // Draw three dots like a traffic light
+            paint.style = Paint.Style.FILL
+            canvas.drawCircle(width / 2f, 30f, 4f, paint) // Top
+            canvas.drawCircle(width / 2f, 38f, 4f, paint) // Mid
+            canvas.drawCircle(width / 2f, 46f, 4f, paint) // Bottom
+        }
+        CameraType.SEATBELT_PHONE -> {
+            // Draw a simple mobile phone silhouette
+            paint.style = Paint.Style.STROKE
+                        canvas.drawRoundRect(width / 2f - 10f, 30f, width / 2f + 10f, 46f, 4f, 4f, paint)
+            paint.style = Paint.Style.FILL
+                        canvas.drawCircle(width / 2f, 44f, 2f, paint) // Home button
+        }
+        CameraType.AVERAGE_SPEED -> {
+            // Draw a mini stopwatch/clock
+            paint.style = Paint.Style.STROKE
+                                    canvas.drawCircle(width / 2f, 38f, 12f, paint)
+            paint.style = Paint.Style.FILL
+            canvas.drawRect(width / 2f, 38f - 1f, width / 2f + 8f, 38f + 1f, paint) // Clock hand
+        }
+        CameraType.POLICE_MOBILE -> {
+            // Draw a simple badge/star shape
+            paint.style = Paint.Style.FILL
+            val starPath = Path().apply {
+                moveTo(width / 2f, 28f)
+                lineTo(width / 2f + 8f, 35f)
+                lineTo(width / 2f + 15f, 38f)
+                lineTo(width / 2f + 8f, 41f)
+                lineTo(width / 2f, 48f)
+                lineTo(width / 2f - 8f, 41f)
+                lineTo(width / 2f - 15f, 38f)
+                lineTo(width / 2f - 8f, 35f)
+                close()
+            }
+                                    canvas.drawPath(starPath, paint)
+        }
+    }
+
+    // If there's a speed limit, show it in a small bubble at the bottom of the pin
+    if (speedLimit != null) {
+        val textPaint = Paint(paint).apply {
+            color = Color.WHITE
+            textSize = 24f
+            isFakeBoldText = true
+            textAlign = Paint.Align.CENTER
+        }
+        // Draw a small dark background for the speed text for legibility
+        val textBgPaint = Paint(paint).apply {
+            color = Color.argb(180, 0, 0, 0)
+            style = Paint.Style.FILL
+        }
+        canvas.drawRect(width / 2f - 15f, height - 35f, width / 2f + 15f, height - 10f, textBgPaint)
+        textPaint.color = Color.WHITE
+        canvas.drawText("$speedLimit", width / 2f, height - 16f, textPaint)
     }
 
     return BitmapDrawable(context.resources, bitmap)
