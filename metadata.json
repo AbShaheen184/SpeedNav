@@ -1,0 +1,6 @@
+{
+  "name": "SpeedNav",
+  "description": "Real-time navigation and road-safety assistant with speed limits, speed camera alerts, and dynamic HUD speedometer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
