@@ -121,9 +121,9 @@ class LocationManager(private val context: Context) {
             var currentIndex = 0
             var currentSpeed = 0f
 
-            while (isActive && _isSimulating.value && currentIndex < waypoints.size) {
+            while (isActive && _isSimulating.value && currentIndex < waypoints.size - 1) {
                 val currentPt = waypoints[currentIndex]
-                val nextPt = if (currentIndex + 1 < waypoints.size) waypoints[currentIndex + 1] else currentPt
+                val nextPt = waypoints[currentIndex + 1]
 
                 // Calculate bearing towards next point
                 val bearing = calculateBearing(
@@ -141,20 +141,43 @@ class LocationManager(private val context: Context) {
 
                 currentSpeed += (speedObjective - currentSpeed) * 0.25f
 
-                val point = LocationPoint(
-                    latitude = currentPt.first,
-                    longitude = currentPt.second,
+                // Interpolate 10 micro-steps between currentPt and nextPt for high-fidelity 100ms refresh rate
+                val steps = 10
+                for (step in 0 until steps) {
+                    if (!isActive || !_isSimulating.value) break
+                    val fraction = step.toDouble() / steps
+                    val interpolatedLat = currentPt.first + (nextPt.first - currentPt.first) * fraction
+                    val interpolatedLon = currentPt.second + (nextPt.second - currentPt.second) * fraction
+
+                    val point = LocationPoint(
+                        latitude = interpolatedLat,
+                        longitude = interpolatedLon,
+                        speedKmh = currentSpeed,
+                        bearing = bearing,
+                        accuracy = 4.0f,
+                        altitude = 45.0,
+                        timestamp = System.currentTimeMillis(),
+                        hasSpeed = true
+                    )
+
+                    _simulationLocation.value = point
+                    delay(100L)
+                }
+                currentIndex++
+            }
+            // Emit final item at the end of the line
+            if (isActive && _isSimulating.value && waypoints.isNotEmpty()) {
+                val lastPt = waypoints.last()
+                _simulationLocation.value = LocationPoint(
+                    latitude = lastPt.first,
+                    longitude = lastPt.second,
                     speedKmh = currentSpeed,
-                    bearing = bearing,
+                    bearing = _simulationLocation.value?.bearing ?: 0f,
                     accuracy = 4.0f,
                     altitude = 45.0,
                     timestamp = System.currentTimeMillis(),
                     hasSpeed = true
                 )
-
-                _simulationLocation.value = point
-                currentIndex++
-                delay(1000L)
             }
             // Loop or finish
             stopSimulation()

@@ -109,14 +109,14 @@ fun MapViewContainer(
                 if (currentLocation.speedKmh > 3f) {
                     mapView.mapOrientation = -currentLocation.bearing
                 }
-                mapView.controller.animateTo(vehicleGeo, targetZoom, 650L)
+                mapView.controller.animateTo(vehicleGeo, targetZoom, 120L)
             }
         } else {
             // Browsing / overview mode: North-up orientation
             mapView.mapOrientation = 0f
             if (isFollowMode) {
                 val browsingZoom = if (currentRoute != null) 15.5 else 16.5
-                mapView.controller.animateTo(vehicleGeo, browsingZoom, 500L)
+                mapView.controller.animateTo(vehicleGeo, browsingZoom, 120L)
             }
         }
         mapView.invalidate()
