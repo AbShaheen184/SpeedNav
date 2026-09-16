@@ -65,7 +65,7 @@ fun SavedLocationsSheet(
     onDeleteLocation: (Long) -> Unit,
     onAddCurrentLocation: (name: String, category: String) -> Unit,
     onDismiss: () -> Unit,
-    onUpdateLocation: (id: Long, title: String, subtitle: String, category: String) -> Unit = { _, _, _, _ -> },
+    onUpdateLocation: (id: Long, title: String, subtitle: String, lat: Double, lon: Double, category: String) -> Unit = { _, _, _, _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
     if (!isOpen) return
@@ -191,8 +191,8 @@ fun SavedLocationsSheet(
         EditLocationDialog(
             location = editingLocation!!,
             onDismiss = { editingLocation = null },
-            onConfirm = { title, subtitle, category ->
-                onUpdateLocation(editingLocation!!.id, title, subtitle, category)
+            onConfirm = { title, subtitle, lat, lon, category ->
+                onUpdateLocation(editingLocation!!.id, title, subtitle, lat, lon, category)
                 editingLocation = null
             }
         )
@@ -306,10 +306,12 @@ private fun SavedLocationItem(
 private fun EditLocationDialog(
     location: SavedLocationEntity,
     onDismiss: () -> Unit,
-    onConfirm: (title: String, subtitle: String, category: String) -> Unit
+    onConfirm: (title: String, subtitle: String, lat: Double, lon: Double, category: String) -> Unit
 ) {
     var title by remember { mutableStateOf(location.title) }
     var subtitle by remember { mutableStateOf(location.subtitle) }
+    var latStr by remember { mutableStateOf(location.latitude.toString()) }
+    var lonStr by remember { mutableStateOf(location.longitude.toString()) }
     var category by remember { mutableStateOf(location.category) }
 
     AlertDialog(
@@ -334,6 +336,26 @@ private fun EditLocationDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = latStr,
+                        onValueChange = { latStr = it },
+                        label = { Text("Latitude") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    OutlinedTextField(
+                        value = lonStr,
+                        onValueChange = { lonStr = it },
+                        label = { Text("Longitude") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
@@ -363,13 +385,22 @@ private fun EditLocationDialog(
             }
         },
         confirmButton = {
+            val isValidLat = latStr.toDoubleOrNull() != null
+            val isValidLon = lonStr.toDoubleOrNull() != null
+
             Button(
                 onClick = {
-                    if (title.isNotBlank()) {
-                        onConfirm(title.trim(), subtitle.trim(), category)
+                    if (title.isNotBlank() && isValidLat && isValidLon) {
+                        onConfirm(
+                            title.trim(),
+                            subtitle.trim(),
+                            latStr.toDouble(),
+                            lonStr.toDouble(),
+                            category
+                        )
                     }
                 },
-                enabled = title.isNotBlank()
+                enabled = title.isNotBlank() && isValidLat && isValidLon
             ) {
                 Text("Save")
             }

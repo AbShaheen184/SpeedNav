@@ -34,8 +34,8 @@ class SavedLocationRepository(private val dao: SavedLocationDao) {
         return dao.findByCoordinates(lat, lon) != null
     }
 
-    suspend fun updateLocation(id: Long, title: String, subtitle: String, category: String) {
-        dao.updateLocation(id, title, subtitle, category)
+    suspend fun updateLocation(id: Long, title: String, subtitle: String, lat: Double, lon: Double, category: String) {
+        dao.updateLocation(id, title, subtitle, lat, lon, category)
     }
 
     suspend fun ensureDefaultLocations(currentLat: Double, currentLon: Double) {

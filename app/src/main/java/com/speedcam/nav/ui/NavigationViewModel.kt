@@ -336,9 +336,9 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun updateSavedLocation(id: Long, title: String, subtitle: String, category: String) {
+    fun updateSavedLocation(id: Long, title: String, subtitle: String, lat: Double, lon: Double, category: String) {
         viewModelScope.launch {
-            savedLocationRepository.updateLocation(id, title, subtitle, category)
+            savedLocationRepository.updateLocation(id, title, subtitle, lat, lon, category)
             _uiState.update {
                 it.copy(statusMessage = "Updated '$title'")
             }

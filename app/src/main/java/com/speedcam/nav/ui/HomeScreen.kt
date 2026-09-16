@@ -350,8 +350,8 @@ fun HomeScreen(
                     category = category
                 )
             },
-            onUpdateLocation = { id, title, subtitle, category ->
-                viewModel.updateSavedLocation(id, title, subtitle, category)
+            onUpdateLocation = { id, title, subtitle, lat, lon, category ->
+                viewModel.updateSavedLocation(id, title, subtitle, lat, lon, category)
             },
             onDismiss = { viewModel.setShowSavedLocationsSheet(false) }
         )
