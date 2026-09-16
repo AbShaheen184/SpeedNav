@@ -152,11 +152,28 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         )
         val finalDistToManeuver = results[0].toDouble()
 
-        // Check if approaching a turn or exit (e.g. within 180 meters)
+        // Check if approaching a turn or exit (e.g. within 220 meters for smoother lead-in)
         val isTurnOrExit = activeStep.maneuverType != ManeuverType.STRAIGHT &&
                 activeStep.maneuverType != ManeuverType.DEPART
-        val isClose = finalDistToManeuver <= 180.0
-        val isApproaching = isTurnOrExit && isClose
+
+        // Also check if we just passed a maneuver recently (within 100 meters) 
+        // to keep the zoom-in state through the turn/junction
+        val prevStep = if (stepIdx > 0) steps[stepIdx - 1] else null
+        var isRecentManeuver = false
+        if (prevStep != null) {
+            Location.distanceBetween(
+                point.latitude, point.longitude,
+                prevStep.latitude, prevStep.longitude,
+                results
+            )
+            val distFromPrev = results[0].toDouble()
+            isRecentManeuver = distFromPrev < 100.0 && 
+                              prevStep.maneuverType != ManeuverType.STRAIGHT &&
+                              prevStep.maneuverType != ManeuverType.DEPART
+        }
+
+        val isClose = finalDistToManeuver <= 220.0
+        val isApproaching = (isTurnOrExit && isClose) || isRecentManeuver
 
         // Calculate remaining route distance and duration from current location to destination
         val destPt = route.waypoints.lastOrNull()

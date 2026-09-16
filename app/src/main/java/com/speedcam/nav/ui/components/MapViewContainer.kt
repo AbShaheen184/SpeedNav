@@ -9,10 +9,14 @@ import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -90,24 +94,28 @@ fun MapViewContainer(
     }
 
     // Dynamic Navigation Zoom & Map Orientation Tracking
-    LaunchedEffect(isNavigating, isApproachingTurnOrExit, currentLocation, isFollowMode) {
+    val targetZoom = if (isNavigating) {
+        if (isApproachingTurnOrExit) 19.8 else 18.2
+    } else {
+        16.5
+    }
+
+    val animatedZoom by animateFloatAsState(
+        targetValue = targetZoom.toFloat(),
+        animationSpec = tween(durationMillis = 1500, easing = FastOutSlowInEasing),
+        label = "MapZoom"
+    )
+
+    LaunchedEffect(isNavigating, animatedZoom, currentLocation, isFollowMode) {
         if (currentLocation == null) return@LaunchedEffect
         val vehicleGeo = GeoPoint(currentLocation.latitude, currentLocation.longitude)
 
+        // Apply smooth zoom level updates
+        if (mapView.zoomLevelDouble != animatedZoom.toDouble()) {
+            mapView.controller.setZoom(animatedZoom.toDouble())
+        }
+
         if (isNavigating) {
-            // Determine target zoom based on turn/exit proximity
-            // Normal navigation close area: 18.2
-            // Approaching turn/exit: zoom in more (19.8) to clarify the turn/ramp/junction
-            val targetZoom = if (isApproachingTurnOrExit) {
-                19.8
-            } else {
-                18.2
-            }
-
-            if (mapView.zoomLevelDouble != targetZoom) {
-                mapView.controller.setZoom(targetZoom)
-            }
-
             if (isFollowMode) {
                 // Heads-up perspective: orient map so user travels forward (towards top of screen)
                 if (currentLocation.speedKmh > 3f) {
