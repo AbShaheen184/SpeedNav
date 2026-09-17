@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.speedcam.nav.data.local.AppDatabase
 import com.speedcam.nav.data.location.LocationManager
+import com.speedcam.nav.data.model.DroppedPinLocation
 import com.speedcam.nav.data.model.LocationPoint
 import com.speedcam.nav.data.model.ManeuverType
 import com.speedcam.nav.data.model.NavigationRoute
@@ -39,6 +40,7 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
 
     private var locationJob: Job? = null
     private var searchJob: Job? = null
+    private var reverseGeocodePinJob: Job? = null
 
     // Track previously alerted camera IDs to avoid repetitive beeping for the same camera
     private val alertedCameraIds = mutableSetOf<Long>()
@@ -455,6 +457,113 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
 
     fun setShowSavedLocationsSheet(show: Boolean) {
         _uiState.update { it.copy(showSavedLocationsSheet = show) }
+    }
+
+    /**
+     * Called when the user touches and holds (long-presses) any point on the map.
+     * Drops a pin, reverse-geocodes the coordinates in background, and displays the options sheet.
+     */
+    fun onMapLongPress(lat: Double, lon: Double) {
+        val curr = _uiState.value.currentLocation
+        val dist = if (curr != null) {
+            repository.distanceBetween(curr.latitude, curr.longitude, lat, lon).toInt()
+        } else null
+
+        val initialPin = DroppedPinLocation(
+            latitude = lat,
+            longitude = lon,
+            title = "Dropped Pin",
+            subtitle = String.format(Locale.US, "%.5f, %.5f", lat, lon),
+            distanceMeters = dist,
+            isResolvingAddress = true
+        )
+
+        _uiState.update {
+            it.copy(
+                droppedPin = initialPin,
+                showDroppedPinSheet = true
+            )
+        }
+
+        reverseGeocodePinJob?.cancel()
+        reverseGeocodePinJob = viewModelScope.launch {
+            val address = repository.reverseGeocode(lat, lon)
+            val title = address?.road
+                ?: address?.neighbourhood
+                ?: address?.suburb
+                ?: address?.city
+                ?: address?.town
+                ?: address?.village
+                ?: "Dropped Pin"
+
+            val subtitleParts = mutableListOf<String>()
+            address?.road?.let { if (it != title) subtitleParts.add(it) }
+            address?.neighbourhood?.let { if (it != title && !subtitleParts.contains(it)) subtitleParts.add(it) }
+            address?.suburb?.let { if (it != title && !subtitleParts.contains(it)) subtitleParts.add(it) }
+            address?.city?.let { if (it != title && !subtitleParts.contains(it)) subtitleParts.add(it) }
+            address?.town?.let { if (it != title && !subtitleParts.contains(it)) subtitleParts.add(it) }
+            address?.state?.let { if (!subtitleParts.contains(it)) subtitleParts.add(it) }
+            address?.country?.let { if (!subtitleParts.contains(it)) subtitleParts.add(it) }
+
+            val subtitle = if (subtitleParts.isNotEmpty()) {
+                subtitleParts.joinToString(", ")
+            } else {
+                String.format(Locale.US, "%.5f, %.5f", lat, lon)
+            }
+
+            _uiState.update { state ->
+                if (state.droppedPin?.latitude == lat && state.droppedPin?.longitude == lon) {
+                    state.copy(
+                        droppedPin = state.droppedPin.copy(
+                            title = title,
+                            subtitle = subtitle,
+                            isResolvingAddress = false
+                        )
+                    )
+                } else state
+            }
+        }
+    }
+
+    fun dismissDroppedPinSheet() {
+        _uiState.update { it.copy(showDroppedPinSheet = false) }
+    }
+
+    fun clearDroppedPin() {
+        reverseGeocodePinJob?.cancel()
+        _uiState.update { it.copy(droppedPin = null, showDroppedPinSheet = false) }
+    }
+
+    fun openDroppedPinSheet() {
+        if (_uiState.value.droppedPin != null) {
+            _uiState.update { it.copy(showDroppedPinSheet = true) }
+        }
+    }
+
+    fun requestDirectionsToDroppedPin() {
+        val pin = _uiState.value.droppedPin ?: return
+        val searchLoc = pin.toSearchLocation()
+        _uiState.update { it.copy(showDroppedPinSheet = false) }
+        selectDestination(searchLoc)
+    }
+
+    fun saveDroppedPinLocation(customTitle: String? = null, category: String = "FAVORITE") {
+        val pin = _uiState.value.droppedPin ?: return
+        val title = customTitle?.ifBlank { null } ?: pin.title
+        viewModelScope.launch {
+            savedLocationRepository.saveLocation(
+                title = title,
+                subtitle = pin.subtitle,
+                latitude = pin.latitude,
+                longitude = pin.longitude,
+                category = category
+            )
+            _uiState.update {
+                it.copy(
+                    statusMessage = "Saved '$title' to your locations"
+                )
+            }
+        }
     }
 
     private fun calculateRoutePreview(destLat: Double, destLon: Double, destName: String) {

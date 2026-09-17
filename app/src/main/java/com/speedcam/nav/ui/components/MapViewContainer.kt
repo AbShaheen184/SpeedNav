@@ -20,20 +20,24 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.viewinterop.AndroidView
 import android.preference.PreferenceManager
 import com.speedcam.nav.data.model.CameraType
+import com.speedcam.nav.data.model.DroppedPinLocation
 import com.speedcam.nav.data.model.LocationPoint
 import com.speedcam.nav.data.model.NavigationRoute
 import com.speedcam.nav.data.model.SpeedCameraNode
 import org.osmdroid.config.Configuration
+import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.CustomZoomButtonsController
 import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 
@@ -42,6 +46,7 @@ fun MapViewContainer(
     currentLocation: LocationPoint?,
     nearbyCameras: List<SpeedCameraNode>,
     currentRoute: NavigationRoute?,
+    droppedPin: DroppedPinLocation? = null,
     isNavigating: Boolean,
     isApproachingTurnOrExit: Boolean,
     distanceToNextManeuverMeters: Double?,
@@ -49,9 +54,14 @@ fun MapViewContainer(
     recenterTrigger: Long = 0L,
     isDarkMapTheme: Boolean,
     onMapTouched: () -> Unit,
+    onMapLongPress: (lat: Double, lon: Double) -> Unit = { _, _ -> },
+    onDroppedPinClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+
+    val currentOnMapLongPress by rememberUpdatedState(onMapLongPress)
+    val currentOnDroppedPinClick by rememberUpdatedState(onDroppedPinClick)
 
     // Initialize osmdroid configuration once with optimized tile caching
     remember {
@@ -89,6 +99,36 @@ fun MapViewContainer(
         }
     }
 
+    // Map Events overlay for detecting touch-and-hold (long-press) anywhere on the map
+    val mapEventsOverlay = remember {
+        MapEventsOverlay(object : MapEventsReceiver {
+            override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean {
+                return false
+            }
+
+            override fun longPressHelper(p: GeoPoint?): Boolean {
+                if (p != null) {
+                    try {
+                        mapView.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                    } catch (e: Exception) {
+                        // ignore
+                    }
+                    currentOnMapLongPress(p.latitude, p.longitude)
+                    return true
+                }
+                return false
+            }
+        })
+    }
+
+    // Attach mapEventsOverlay to mapView overlays
+    remember(mapView) {
+        if (!mapView.overlays.contains(mapEventsOverlay)) {
+            mapView.overlays.add(0, mapEventsOverlay)
+        }
+        true
+    }
+
     // Pre-cache vehicle icons (moving and stationary) once to completely eliminate GC lag on GPS updates
     val movingVehicleIcon = remember(context) { createVehicleIcon(context, true) }
     val stationaryVehicleIcon = remember(context) { createVehicleIcon(context, false) }
@@ -102,6 +142,34 @@ fun MapViewContainer(
             id = "VEHICLE_MARKER"
             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
         }
+    }
+
+    // Persistent Dropped Pin marker for long-press location actions
+    val droppedPinIcon = remember(context) { createDroppedPinIcon(context) }
+    val droppedPinMarker = remember {
+        Marker(mapView).apply {
+            id = "DROPPED_PIN_MARKER"
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            setOnMarkerClickListener { _, _ ->
+                currentOnDroppedPinClick()
+                true
+            }
+        }
+    }
+
+    LaunchedEffect(droppedPin) {
+        if (droppedPin != null) {
+            droppedPinMarker.position = GeoPoint(droppedPin.latitude, droppedPin.longitude)
+            droppedPinMarker.icon = droppedPinIcon
+            droppedPinMarker.title = droppedPin.title
+            droppedPinMarker.snippet = droppedPin.subtitle
+            if (!mapView.overlays.contains(droppedPinMarker)) {
+                mapView.overlays.add(droppedPinMarker)
+            }
+        } else {
+            mapView.overlays.remove(droppedPinMarker)
+        }
+        mapView.invalidate()
     }
 
     // Apply Dark/Light theme tiles color filter
@@ -414,6 +482,49 @@ private fun createCameraIcon(context: Context, type: CameraType, speedLimit: Int
         textPaint.color = Color.WHITE
         canvas.drawText("$speedLimit", width / 2f, height - 16f, textPaint)
     }
+
+    return BitmapDrawable(context.resources, bitmap)
+}
+
+/**
+ * Creates a high-visibility Red Location Pin for dropped pins created via touch-and-hold.
+ */
+fun createDroppedPinIcon(context: Context): Drawable {
+    val width = 96
+    val height = 120
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    // Outer Red Pin Circle
+    paint.style = Paint.Style.FILL
+    paint.color = Color.rgb(239, 68, 68) // #EF4444
+    canvas.drawCircle(width / 2f, 44f, 38f, paint)
+
+    // Bottom pointer triangle
+    val pointer = Path().apply {
+        moveTo(width / 2f - 20f, 54f)
+        lineTo(width / 2f, height - 8f)
+        lineTo(width / 2f + 20f, 54f)
+        close()
+    }
+    canvas.drawPath(pointer, paint)
+
+    // Dark red border for contrast
+    paint.style = Paint.Style.STROKE
+    paint.strokeWidth = 4f
+    paint.color = Color.rgb(185, 28, 28)
+    canvas.drawCircle(width / 2f, 44f, 38f, paint)
+    canvas.drawPath(pointer, paint)
+
+    // Inner White Disc
+    paint.style = Paint.Style.FILL
+    paint.color = Color.WHITE
+    canvas.drawCircle(width / 2f, 44f, 16f, paint)
+
+    // Center Red Dot
+    paint.color = Color.rgb(239, 68, 68)
+    canvas.drawCircle(width / 2f, 44f, 8f, paint)
 
     return BitmapDrawable(context.resources, bitmap)
 }

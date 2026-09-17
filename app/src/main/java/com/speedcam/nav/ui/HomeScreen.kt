@@ -59,6 +59,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.speedcam.nav.ui.components.CameraAlertCard
+import com.speedcam.nav.ui.components.MapPointOptionsSheet
 import com.speedcam.nav.ui.components.MapViewContainer
 import com.speedcam.nav.ui.components.NavigationHudControls
 import com.speedcam.nav.ui.components.RoutePreviewCard
@@ -116,6 +117,7 @@ fun HomeScreen(
             currentLocation = uiState.currentLocation,
             nearbyCameras = uiState.nearbyCameras,
             currentRoute = uiState.currentRoute,
+            droppedPin = uiState.droppedPin,
             isNavigating = uiState.isNavigating,
             isApproachingTurnOrExit = uiState.isApproachingTurnOrExit,
             distanceToNextManeuverMeters = uiState.distanceToNextManeuverMeters,
@@ -124,6 +126,12 @@ fun HomeScreen(
             isDarkMapTheme = uiState.isDarkMapTheme,
             onMapTouched = {
                 viewModel.onMapPanned()
+            },
+            onMapLongPress = { lat, lon ->
+                viewModel.onMapLongPress(lat, lon)
+            },
+            onDroppedPinClick = {
+                viewModel.openDroppedPinSheet()
             }
         )
 
@@ -361,6 +369,17 @@ fun HomeScreen(
             onDismiss = { viewModel.setShowSavedLocationsSheet(false) }
         )
     }
+
+    // Touch & Hold Dropped Pin Options Bottom Sheet (Directions, Save, Copy Lat/Lon, Share)
+    MapPointOptionsSheet(
+        isOpen = uiState.showDroppedPinSheet,
+        droppedPin = uiState.droppedPin,
+        onDismiss = { viewModel.dismissDroppedPinSheet() },
+        onDirections = { viewModel.requestDirectionsToDroppedPin() },
+        onSaveLocation = { name, category ->
+            viewModel.saveDroppedPinLocation(name, category)
+        }
+    )
 
     // Speed Limit Quick Tester / Selector Dialog
     if (showSpeedLimitPicker) {

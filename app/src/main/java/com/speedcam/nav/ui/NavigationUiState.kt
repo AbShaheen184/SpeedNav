@@ -1,6 +1,7 @@
 package com.speedcam.nav.ui
 
 import com.speedcam.nav.data.local.SavedLocationEntity
+import com.speedcam.nav.data.model.DroppedPinLocation
 import com.speedcam.nav.data.model.LocationPoint
 import com.speedcam.nav.data.model.NavigationRoute
 import com.speedcam.nav.data.model.NavigationStep
@@ -35,6 +36,9 @@ data class NavigationUiState(
     val savedLocations: List<SavedLocationEntity> = emptyList(),
     val showSavedLocationsSheet: Boolean = false,
     val isDestinationSaved: Boolean = false,
+    // Dropped Pin (touch & hold on map)
+    val droppedPin: DroppedPinLocation? = null,
+    val showDroppedPinSheet: Boolean = false,
     // Navigation & Turn-by-Turn state
     val selectedDestination: SearchLocation? = null,
     val isRoutePreviewShowing: Boolean = false,
