@@ -48,4 +48,13 @@ object NetworkClient {
             .build()
             .create(GeocodingApiService::class.java)
     }
+
+    val photonApi: PhotonApiService by lazy {
+        Retrofit.Builder()
+            .baseUrl("https://photon.komoot.io/")
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(PhotonApiService::class.java)
+    }
 }

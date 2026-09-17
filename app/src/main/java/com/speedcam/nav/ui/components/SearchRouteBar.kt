@@ -32,8 +32,11 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.NearMe
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Work
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -71,6 +74,10 @@ fun SearchRouteBar(
     onSelectDestination: (SearchLocation) -> Unit,
     savedLocations: List<SavedLocationEntity>,
     onOpenSavedLocations: () -> Unit,
+    currentCity: String? = null,
+    currentCountry: String? = null,
+    isNearMeFilterEnabled: Boolean = true,
+    onToggleNearMeFilter: () -> Unit = {},
     currentRoute: NavigationRoute?,
     isNavigating: Boolean,
     isLoadingRoute: Boolean,
@@ -195,7 +202,7 @@ fun SearchRouteBar(
                 }
             }
 
-            // Quick Saved Locations Chip Row
+            // Quick Filter & Saved Locations Chip Row
             if (!isNavigating) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(
@@ -204,6 +211,43 @@ fun SearchRouteBar(
                         .horizontalScroll(rememberScrollState()),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Current City / Country Search Bias Chip
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (isNearMeFilterEnabled) Color(0xFF0284C7).copy(alpha = 0.35f) else Color(0xFF1E293B),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable { onToggleNearMeFilter() }
+                            .testTag("search_filter_near_me_chip")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isNearMeFilterEnabled) Icons.Default.NearMe else Icons.Default.Public,
+                                contentDescription = null,
+                                tint = if (isNearMeFilterEnabled) Color(0xFF38BDF8) else Color(0xFF94A3B8),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = if (isNearMeFilterEnabled) {
+                                    val city = currentCity ?: "Near Me"
+                                    val country = currentCountry?.let { " • $it" } ?: ""
+                                    "$city$country"
+                                } else {
+                                    "Worldwide"
+                                },
+                                color = if (isNearMeFilterEnabled) Color.White else Color(0xFFCBD5E1),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
                     // "Saved Places" Chip button
                     Surface(
                         shape = RoundedCornerShape(14.dp),
@@ -293,7 +337,7 @@ fun SearchRouteBar(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp)
-                        .heightIn(max = 240.dp)
+                        .heightIn(max = 260.dp)
                 ) {
                     HorizontalDivider(color = Color(0x22FFFFFF))
                     LazyColumn {
@@ -316,12 +360,13 @@ fun SearchRouteBar(
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = loc.title,
                                         color = Color.White,
                                         fontSize = 14.sp,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1
                                     )
                                     if (loc.subtitle.isNotBlank()) {
                                         Text(
@@ -331,6 +376,20 @@ fun SearchRouteBar(
                                             maxLines = 1
                                         )
                                     }
+                                }
+                                if (loc.distanceMeters != null) {
+                                    val formattedDist = if (loc.distanceMeters < 1000) {
+                                        "${loc.distanceMeters} m"
+                                    } else {
+                                        String.format(java.util.Locale.getDefault(), "%.1f km", loc.distanceMeters / 1000.0)
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = formattedDist,
+                                        color = Color(0xFF38BDF8),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
                                 }
                             }
                         }

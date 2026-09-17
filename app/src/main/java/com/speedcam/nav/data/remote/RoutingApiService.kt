@@ -1,5 +1,6 @@
 package com.speedcam.nav.data.remote
 
+import com.speedcam.nav.data.model.NominatimReverseResult
 import com.speedcam.nav.data.model.NominatimSearchResult
 import com.speedcam.nav.data.model.OsrmRouteResponse
 import retrofit2.http.GET
@@ -21,7 +22,19 @@ interface GeocodingApiService {
     suspend fun searchLocations(
         @Query("q") query: String,
         @Query("format") format: String = "json",
-        @Query("limit") limit: Int = 6,
-        @Query("addressdetails") addressDetails: Int = 1
+        @Query("limit") limit: Int = 8,
+        @Query("addressdetails") addressDetails: Int = 1,
+        @Query("viewbox") viewBox: String? = null,
+        @Query("bounded") bounded: Int? = null,
+        @Query("countrycodes") countryCodes: String? = null
     ): List<NominatimSearchResult>
+
+    @GET("reverse")
+    suspend fun reverseGeocode(
+        @Query("lat") lat: Double,
+        @Query("lon") lon: Double,
+        @Query("format") format: String = "json",
+        @Query("addressdetails") addressDetails: Int = 1
+    ): NominatimReverseResult
 }
+

@@ -9,6 +9,7 @@ import com.speedcam.nav.data.location.LocationManager
 import com.speedcam.nav.data.model.LocationPoint
 import com.speedcam.nav.data.model.ManeuverType
 import com.speedcam.nav.data.model.NavigationRoute
+import com.speedcam.nav.data.model.NominatimAddress
 import com.speedcam.nav.data.model.SearchLocation
 import com.speedcam.nav.data.model.SpeedCameraNode
 import com.speedcam.nav.data.repository.SavedLocationRepository
@@ -44,6 +45,7 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     private var lastOverspeedAlertTime = 0L
     private var lastRerouteTime = 0L
     private var isRerouting = false
+    private var lastReverseGeocodeTime = 0L
 
     init {
         startLocationUpdates()
@@ -97,6 +99,27 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
 
         // Check for speed cameras within 500 meters
         checkCameraProximity(point.latitude, point.longitude)
+
+        // Resolve current city and country code for search location bias (every 60 seconds)
+        val nowTime = System.currentTimeMillis()
+        if (nowTime - lastReverseGeocodeTime > 60_000L || _uiState.value.currentCity == null) {
+            lastReverseGeocodeTime = nowTime
+            viewModelScope.launch {
+                val addr = repository.reverseGeocode(point.latitude, point.longitude)
+                if (addr != null) {
+                    val city = addr.city ?: addr.town ?: addr.village ?: addr.municipality ?: addr.suburb
+                    val country = addr.country
+                    val countryCode = addr.countryCode
+                    _uiState.update {
+                        it.copy(
+                            currentCity = city,
+                            currentCountry = country,
+                            currentCountryCode = countryCode
+                        )
+                    }
+                }
+            }
+        }
 
         // Overspeed audible reminder (interval: 10s)
         if (isOverspeed && !_uiState.value.isMuted) {
@@ -319,14 +342,34 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     fun onSearchQueryChanged(query: String) {
         _uiState.update { it.copy(destinationText = query, isSearching = query.isNotBlank()) }
         searchJob?.cancel()
-        if (query.length >= 2) {
+        if (query.trim().length >= 2) {
             searchJob = viewModelScope.launch {
-                delay(350L) // Debounce typing
-                val results = repository.searchPlaces(query)
+                delay(280L) // Responsive debounce
+                val userLoc = _uiState.value.currentLocation
+                val filterNearMe = _uiState.value.isNearMeFilterEnabled
+                val userLat = if (filterNearMe) userLoc?.latitude else null
+                val userLon = if (filterNearMe) userLoc?.longitude else null
+                val countryCode = if (filterNearMe) _uiState.value.currentCountryCode else null
+
+                val results = repository.searchPlaces(
+                    query = query,
+                    userLat = userLat,
+                    userLon = userLon,
+                    countryCode = countryCode
+                )
                 _uiState.update { it.copy(searchResults = results) }
             }
         } else {
             _uiState.update { it.copy(searchResults = emptyList()) }
+        }
+    }
+
+    fun toggleNearMeFilter() {
+        val newEnabled = !_uiState.value.isNearMeFilterEnabled
+        _uiState.update { it.copy(isNearMeFilterEnabled = newEnabled) }
+        val currentQuery = _uiState.value.destinationText
+        if (currentQuery.length >= 2) {
+            onSearchQueryChanged(currentQuery)
         }
     }
 

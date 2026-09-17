@@ -5,6 +5,7 @@ import com.speedcam.nav.data.model.CameraType
 import com.speedcam.nav.data.model.ManeuverType
 import com.speedcam.nav.data.model.NavigationRoute
 import com.speedcam.nav.data.model.NavigationStep
+import com.speedcam.nav.data.model.NominatimAddress
 import com.speedcam.nav.data.model.SearchLocation
 import com.speedcam.nav.data.model.SpeedCameraNode
 import com.speedcam.nav.data.remote.NetworkClient
@@ -20,6 +21,7 @@ class SpeedNavRepository {
     private val overpassApi = NetworkClient.overpassApi
     private val routingApi = NetworkClient.routingApi
     private val geocodingApi = NetworkClient.geocodingApi
+    private val photonApi = NetworkClient.photonApi
 
     // Throttling cache
     private var lastSpeedLimitQueryTime = 0L
@@ -335,27 +337,150 @@ class SpeedNavRepository {
     }
 
     /**
-     * Geocode place names using OpenStreetMap Nominatim
+     * Enhanced Geocoding search combining Photon (Elasticsearch OSM with location bias & typo-tolerance)
+     * and Nominatim (with viewbox & country bias) prioritised around the user's current city/country.
      */
-    suspend fun searchPlaces(query: String): List<SearchLocation> = withContext(Dispatchers.IO) {
-        if (query.isBlank()) return@withContext emptyList()
+    suspend fun searchPlaces(
+        query: String,
+        userLat: Double? = null,
+        userLon: Double? = null,
+        countryCode: String? = null
+    ): List<SearchLocation> = withContext(Dispatchers.IO) {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return@withContext emptyList()
+
+        val resultsList = mutableListOf<SearchLocation>()
+        val seenCoords = mutableSetOf<String>()
+
+        // 1. First priority: Query Photon Komoot API with location biasing (lat & lon)
         try {
-            val results = geocodingApi.searchLocations(query)
-            results.mapNotNull { item ->
-                val lat = item.lat.toDoubleOrNull() ?: return@mapNotNull null
-                val lon = item.lon.toDoubleOrNull() ?: return@mapNotNull null
-                val parts = item.displayName.split(",", limit = 2)
-                val title = parts.getOrNull(0)?.trim() ?: item.displayName
-                val subtitle = parts.getOrNull(1)?.trim() ?: ""
-                SearchLocation(
-                    title = title,
-                    subtitle = subtitle,
-                    latitude = lat,
-                    longitude = lon
+            val photonResponse = photonApi.search(
+                query = trimmed,
+                lat = userLat,
+                lon = userLon,
+                limit = 12
+            )
+            for (feature in photonResponse.features) {
+                val coords = feature.geometry?.coordinates ?: continue
+                if (coords.size < 2) continue
+                val lon = coords[0]
+                val lat = coords[1]
+                val key = "${String.format(java.util.Locale.US, "%.4f", lat)},${String.format(java.util.Locale.US, "%.4f", lon)}"
+                if (seenCoords.contains(key)) continue
+                seenCoords.add(key)
+
+                val props = feature.properties
+                val name = props?.name?.ifBlank { null }
+                    ?: props?.street?.let { st ->
+                        props.housenumber?.let { num -> "$st $num" } ?: st
+                    }
+                    ?: props?.city
+                    ?: trimmed
+
+                val subtitleParts = mutableListOf<String>()
+                props?.street?.let { if (it != name) subtitleParts.add(it) }
+                props?.district?.let { subtitleParts.add(it) }
+                props?.city?.let { if (it != name) subtitleParts.add(it) }
+                props?.state?.let { subtitleParts.add(it) }
+                props?.country?.let { subtitleParts.add(it) }
+
+                val subtitle = subtitleParts.distinct().joinToString(", ")
+
+                var distMeters: Int? = null
+                if (userLat != null && userLon != null) {
+                    distMeters = distanceBetween(userLat, userLon, lat, lon).toInt()
+                }
+
+                resultsList.add(
+                    SearchLocation(
+                        title = name,
+                        subtitle = subtitle,
+                        latitude = lat,
+                        longitude = lon,
+                        distanceMeters = distMeters,
+                        category = props?.osmValue
+                    )
                 )
             }
         } catch (e: Exception) {
-            emptyList()
+            // Fallback to Nominatim
+        }
+
+        // 2. Secondary source: OpenStreetMap Nominatim with viewbox & countrycode biasing
+        if (resultsList.size < 4) {
+            try {
+                val viewBoxStr = if (userLat != null && userLon != null) {
+                    // ~60km bounding box around user's current location/city
+                    val left = userLon - 0.6
+                    val top = userLat + 0.6
+                    val right = userLon + 0.6
+                    val bottom = userLat - 0.6
+                    "$left,$top,$right,$bottom"
+                } else null
+
+                val nominatimResults = geocodingApi.searchLocations(
+                    query = trimmed,
+                    limit = 8,
+                    viewBox = viewBoxStr,
+                    bounded = 0, // Prefer nearby, but do not strictly exclude other places
+                    countryCodes = countryCode?.lowercase()
+                )
+
+                for (item in nominatimResults) {
+                    val lat = item.lat.toDoubleOrNull() ?: continue
+                    val lon = item.lon.toDoubleOrNull() ?: continue
+                    val key = "${String.format(java.util.Locale.US, "%.4f", lat)},${String.format(java.util.Locale.US, "%.4f", lon)}"
+                    if (seenCoords.contains(key)) continue
+                    seenCoords.add(key)
+
+                    val parts = item.displayName.split(",", limit = 2)
+                    val title = parts.getOrNull(0)?.trim() ?: item.displayName
+                    val subtitle = parts.getOrNull(1)?.trim() ?: ""
+
+                    var distMeters: Int? = null
+                    if (userLat != null && userLon != null) {
+                        distMeters = distanceBetween(userLat, userLon, lat, lon).toInt()
+                    }
+
+                    resultsList.add(
+                        SearchLocation(
+                            title = title,
+                            subtitle = subtitle,
+                            latitude = lat,
+                            longitude = lon,
+                            distanceMeters = distMeters,
+                            category = item.type
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                // Ignore fallback exception
+            }
+        }
+
+        // Sort by proximity when user location is available
+        if (userLat != null && userLon != null) {
+            resultsList.sortedWith(
+                compareBy<SearchLocation> { loc ->
+                    // Prioritize closer places (<150km) and sort by distance
+                    val dist = loc.distanceMeters ?: Int.MAX_VALUE
+                    if (dist < 150_000) 0 else 1
+                }.thenBy { it.distanceMeters ?: Int.MAX_VALUE }
+            )
+        } else {
+            resultsList
+        }
+    }
+
+    /**
+     * Reverse geocode a latitude/longitude into a human-readable city/area/country
+     */
+    suspend fun reverseGeocode(lat: Double, lon: Double): NominatimAddress? = withContext(Dispatchers.IO) {
+        try {
+            val response = geocodingApi.reverseGeocode(lat, lon)
+            response.address
+        } catch (e: Exception) {
+            null
         }
     }
 

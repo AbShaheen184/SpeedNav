@@ -68,14 +68,56 @@ data class NominatimSearchResult(
     @SerializedName("lon")
     val lon: String = "0",
     @SerializedName("type")
-    val type: String? = null
+    val type: String? = null,
+    @SerializedName("address")
+    val address: NominatimAddress? = null
+)
+
+data class NominatimReverseResult(
+    @SerializedName("place_id")
+    val placeId: Long = 0L,
+    @SerializedName("display_name")
+    val displayName: String = "",
+    @SerializedName("lat")
+    val lat: String = "0",
+    @SerializedName("lon")
+    val lon: String = "0",
+    @SerializedName("address")
+    val address: NominatimAddress? = null
+)
+
+data class NominatimAddress(
+    @SerializedName("road")
+    val road: String? = null,
+    @SerializedName("neighbourhood")
+    val neighbourhood: String? = null,
+    @SerializedName("suburb")
+    val suburb: String? = null,
+    @SerializedName("city")
+    val city: String? = null,
+    @SerializedName("town")
+    val town: String? = null,
+    @SerializedName("village")
+    val village: String? = null,
+    @SerializedName("municipality")
+    val municipality: String? = null,
+    @SerializedName("county")
+    val county: String? = null,
+    @SerializedName("state")
+    val state: String? = null,
+    @SerializedName("country")
+    val country: String? = null,
+    @SerializedName("country_code")
+    val countryCode: String? = null
 )
 
 data class SearchLocation(
     val title: String,
     val subtitle: String,
     val latitude: Double,
-    val longitude: Double
+    val longitude: Double,
+    val distanceMeters: Int? = null,
+    val category: String? = null
 )
 
 enum class ManeuverType(val label: String) {
