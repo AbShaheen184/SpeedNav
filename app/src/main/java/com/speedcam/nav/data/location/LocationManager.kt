@@ -11,9 +11,12 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
@@ -25,6 +28,39 @@ class LocationManager(private val context: Context) {
 
     private var lastBearing: Float = 0f
     private var lastSpeedKmh: Float = 0f
+
+    @SuppressLint("MissingPermission")
+    suspend fun getCurrentLocation(): LocationPoint? = suspendCancellableCoroutine { continuation ->
+        val cts = CancellationTokenSource()
+        continuation.invokeOnCancellation {
+            cts.cancel()
+        }
+        try {
+            fusedClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cts.token)
+                .addOnSuccessListener { loc ->
+                    if (loc != null) {
+                        continuation.resume(processRawLocation(loc))
+                    } else {
+                        fusedClient.lastLocation.addOnSuccessListener { lastLoc ->
+                            continuation.resume(lastLoc?.let { processRawLocation(it) })
+                        }.addOnFailureListener {
+                            continuation.resume(null)
+                        }
+                    }
+                }
+                .addOnFailureListener {
+                    fusedClient.lastLocation.addOnSuccessListener { lastLoc ->
+                        continuation.resume(lastLoc?.let { processRawLocation(it) })
+                    }.addOnFailureListener {
+                        continuation.resume(null)
+                    }
+                }
+        } catch (e: SecurityException) {
+            continuation.resume(null)
+        } catch (e: Exception) {
+            continuation.resume(null)
+        }
+    }
 
     @SuppressLint("MissingPermission")
     fun getLocationUpdates(intervalMs: Long = 1000L): Flow<LocationPoint> = callbackFlow {

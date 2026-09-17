@@ -120,9 +120,10 @@ fun HomeScreen(
             isApproachingTurnOrExit = uiState.isApproachingTurnOrExit,
             distanceToNextManeuverMeters = uiState.distanceToNextManeuverMeters,
             isFollowMode = uiState.isFollowMode,
+            recenterTrigger = uiState.recenterTrigger,
             isDarkMapTheme = uiState.isDarkMapTheme,
             onMapTouched = {
-                // If user pans map, follow mode can pause until re-centered
+                viewModel.onMapPanned()
             }
         )
 
@@ -141,7 +142,9 @@ fun HomeScreen(
                 nextStep = uiState.nextStep,
                 distanceToManeuverMeters = uiState.distanceToNextManeuverMeters,
                 isApproachingTurnOrExit = uiState.isApproachingTurnOrExit,
-                onExitNavigation = { viewModel.exitNavigation() }
+                onExitNavigation = { viewModel.exitNavigation() },
+                onRecalculateRoute = { viewModel.recalculateRoute() },
+                isUpdatingRoute = uiState.isRouteLoading
             )
 
             // Search Bar & Saved Places when browsing or route previewing
@@ -222,7 +225,7 @@ fun HomeScreen(
         // 3. Floating HUD Controls (Right-aligned)
         NavigationHudControls(
             isFollowMode = uiState.isFollowMode,
-            onToggleFollowMode = { viewModel.toggleFollowMode() },
+            onToggleFollowMode = { viewModel.onMyLocationClicked() },
             isDarkMapTheme = uiState.isDarkMapTheme,
             onToggleDarkMapTheme = { viewModel.toggleDarkMapTheme() },
             isMuted = uiState.isMuted,

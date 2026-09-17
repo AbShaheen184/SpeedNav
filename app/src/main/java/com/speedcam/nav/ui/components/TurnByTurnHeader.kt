@@ -57,6 +57,8 @@ fun TurnByTurnHeader(
     distanceToManeuverMeters: Double?,
     isApproachingTurnOrExit: Boolean,
     onExitNavigation: () -> Unit,
+    onRecalculateRoute: () -> Unit = {},
+    isUpdatingRoute: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     AnimatedVisibility(
@@ -138,11 +140,30 @@ fun TurnByTurnHeader(
                         )
                     }
 
+                    // Update / Recalculate Route from Current Location Button
+                    IconButton(
+                        onClick = onRecalculateRoute,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.28f))
+                            .testTag("recalculate_route_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Update Route Directions",
+                            tint = if (isUpdatingRoute) Color(0xFF00E5FF) else Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
                     // Exit Navigation Button
                     IconButton(
                         onClick = onExitNavigation,
                         modifier = Modifier
-                            .size(42.dp)
+                            .size(38.dp)
                             .clip(CircleShape)
                             .background(Color.Black.copy(alpha = 0.35f))
                             .testTag("exit_navigation_button")
@@ -151,7 +172,7 @@ fun TurnByTurnHeader(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Exit Navigation",
                             tint = Color.White,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }

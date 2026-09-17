@@ -46,16 +46,19 @@ fun MapViewContainer(
     isApproachingTurnOrExit: Boolean,
     distanceToNextManeuverMeters: Double?,
     isFollowMode: Boolean,
+    recenterTrigger: Long = 0L,
     isDarkMapTheme: Boolean,
     onMapTouched: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
 
-    // Initialize osmdroid configuration once
+    // Initialize osmdroid configuration once with optimized tile caching
     remember {
         Configuration.getInstance().load(context, PreferenceManager.getDefaultSharedPreferences(context))
         Configuration.getInstance().userAgentValue = context.packageName
+        Configuration.getInstance().cacheMapTileCount = 16.toShort()
+        Configuration.getInstance().tileFileSystemCacheMaxBytes = 150L * 1024 * 1024
         true
     }
 
@@ -66,27 +69,43 @@ fun MapViewContainer(
             zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
             controller.setZoom(16.5)
 
+            // Hardware acceleration & tile performance configurations
+            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+            isTilesScaledToDpi = true
+            setDestroyMode(false)
+            isHorizontalMapRepetitionEnabled = false
+            isVerticalMapRepetitionEnabled = false
+
             // Default initial location: London Trafalgar / or any major road junction
             val defaultGeo = GeoPoint(51.5074, -0.1278)
             controller.setCenter(defaultGeo)
 
-            setOnTouchListener { _, _ ->
-                onMapTouched()
+            setOnTouchListener { _, event ->
+                if (event.action == android.view.MotionEvent.ACTION_MOVE && event.historySize > 0) {
+                    onMapTouched()
+                }
                 false
             }
         }
     }
 
+    // Pre-cache vehicle icons (moving and stationary) once to completely eliminate GC lag on GPS updates
+    val movingVehicleIcon = remember(context) { createVehicleIcon(context, true) }
+    val stationaryVehicleIcon = remember(context) { createVehicleIcon(context, false) }
+
+    // Pre-cache camera pin drawables by camera type and speed limit
+    val cameraIconCache = remember { mutableMapOf<String, Drawable>() }
+
     // Persistent vehicle marker to prevent laggy recreation
     val vehicleMarker = remember {
         Marker(mapView).apply {
             id = "VEHICLE_MARKER"
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
         }
     }
 
     // Apply Dark/Light theme tiles color filter
     LaunchedEffect(isDarkMapTheme) {
-
         if (isDarkMapTheme) {
             val darkMatrix = ColorMatrix(
                 floatArrayOf(
@@ -103,70 +122,78 @@ fun MapViewContainer(
         mapView.invalidate()
     }
 
-    // Dynamic Navigation Zoom & Map Orientation Tracking
+    // Dynamic Navigation Target Zoom (osmdroid native zoomTo, without 60fps recomposition lag)
     val targetZoom = if (isNavigating) {
-        if (isApproachingTurnOrExit) 19.8 else 18.2
+        if (isApproachingTurnOrExit) 19.5 else 18.0
     } else {
         16.5
     }
 
-    val animatedZoom by animateFloatAsState(
-        targetValue = targetZoom.toFloat(),
-        animationSpec = tween(durationMillis = 1500, easing = FastOutSlowInEasing),
-        label = "MapZoom"
-    )
+    LaunchedEffect(targetZoom) {
+        val currentZoom = mapView.zoomLevelDouble
+        if (Math.abs(currentZoom - targetZoom) > 0.2) {
+            (mapView.controller as? org.osmdroid.views.MapController)?.zoomTo(targetZoom, 500L)
+                ?: mapView.controller.setZoom(targetZoom)
+        }
+    }
 
-    LaunchedEffect(isNavigating, animatedZoom, currentLocation, isFollowMode) {
+    // Google Maps-style smooth camera glide when pressing the "My Location" icon
+    LaunchedEffect(recenterTrigger) {
+        if (recenterTrigger <= 0L) return@LaunchedEffect
+        val targetGeo = if (currentLocation != null) {
+            GeoPoint(currentLocation.latitude, currentLocation.longitude)
+        } else {
+            GeoPoint(51.5074, -0.1278)
+        }
+        val targetZoomLevel = if (isNavigating) 18.2 else 17.0
+        // Smoothly glide camera directly to current location with gentle easing
+        (mapView.controller as? org.osmdroid.views.MapController)?.animateTo(targetGeo, targetZoomLevel, 800L)
+            ?: mapView.controller.animateTo(targetGeo)
+    }
+
+    // Smooth movement and orientation while following vehicle or navigating
+    LaunchedEffect(currentLocation, isFollowMode, isNavigating) {
         if (currentLocation == null) return@LaunchedEffect
         val vehicleGeo = GeoPoint(currentLocation.latitude, currentLocation.longitude)
 
-        // Apply smooth zoom level updates
-        if (mapView.zoomLevelDouble != animatedZoom.toDouble()) {
-            mapView.controller.setZoom(animatedZoom.toDouble())
+        if (isFollowMode) {
+            // Smoothly glide camera to the updated vehicle position
+            mapView.controller.animateTo(vehicleGeo)
         }
 
         if (isNavigating) {
-            if (isFollowMode) {
-                // Heads-up perspective: orient map so user travels forward (towards top of screen)
-                if (currentLocation.speedKmh > 3f) {
-                    mapView.mapOrientation = -currentLocation.bearing
-                }
-                mapView.setExpectedCenter(vehicleGeo)
+            if (isFollowMode && currentLocation.speedKmh > 3f) {
+                mapView.mapOrientation = -currentLocation.bearing
             }
         } else {
-            // Browsing / overview mode: North-up orientation
-            mapView.mapOrientation = 0f
             if (isFollowMode) {
-                mapView.setExpectedCenter(vehicleGeo)
+                mapView.mapOrientation = 0f
             }
         }
         mapView.invalidate()
     }
 
-    // Update vehicle marker
+    // Update vehicle marker with cached icons (Zero allocations)
     LaunchedEffect(currentLocation) {
         if (currentLocation == null) return@LaunchedEffect
         val vehicleGeo = GeoPoint(currentLocation.latitude, currentLocation.longitude)
+        val isMoving = currentLocation.speedKmh > 2f
 
-        // Update existing persistent marker instead of recreating it
         vehicleMarker.apply {
             position = vehicleGeo
             rotation = currentLocation.bearing
-            icon = createVehicleIcon(context, currentLocation.speedKmh > 2f)
+            icon = if (isMoving) movingVehicleIcon else stationaryVehicleIcon
             title = "Current Position: ${currentLocation.speedKmh.toInt()} km/h"
         }
 
-        // Ensure the marker is actually in the overlays
         if (!mapView.overlays.contains(vehicleMarker)) {
             mapView.overlays.add(vehicleMarker)
         }
-        
         mapView.invalidate()
     }
 
     // Update Route polyline
     LaunchedEffect(currentRoute) {
-        // Remove old route polylines
         val existingPolylines = mapView.overlays.filterIsInstance<Polyline>()
         mapView.overlays.removeAll(existingPolylines)
 
@@ -197,7 +224,7 @@ fun MapViewContainer(
         mapView.invalidate()
     }
 
-    // Update Speed Camera markers
+    // Update Speed Camera markers with caching
     LaunchedEffect(nearbyCameras) {
         val existingCameraMarkers = mapView.overlays.filterIsInstance<Marker>()
             .filter { it.id?.startsWith("CAMERA_") == true }
@@ -208,7 +235,7 @@ fun MapViewContainer(
                 id = "CAMERA_${cam.id}"
                 position = GeoPoint(cam.latitude, cam.longitude)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                icon = createCameraIcon(context, cam.cameraType, cam.speedLimit)
+                icon = getCachedCameraIcon(context, cam.cameraType, cam.speedLimit, cameraIconCache)
                 title = "${cam.cameraType.label} (${cam.distanceMeters}m)"
                 snippet = cam.roadName ?: cam.cameraType.description
             }
@@ -230,6 +257,21 @@ fun MapViewContainer(
             .fillMaxSize()
             .testTag("map_view_canvas")
     )
+}
+
+/**
+ * Retrieves cached camera pin drawable or creates and stores it once
+ */
+private fun getCachedCameraIcon(
+    context: Context,
+    type: CameraType,
+    speedLimit: Int?,
+    cache: MutableMap<String, Drawable>
+): Drawable {
+    val key = "${type.name}_${speedLimit ?: -1}"
+    return cache.getOrPut(key) {
+        createCameraIcon(context, type, speedLimit)
+    }
 }
 
 /**

@@ -18,6 +18,7 @@ data class NavigationUiState(
     val currentRoute: NavigationRoute? = null,
     val isNavigating: Boolean = false,
     val isFollowMode: Boolean = true,
+    val recenterTrigger: Long = 0L,
     val isDarkMapTheme: Boolean = true,
     val originText: String = "Current Location",
     val destinationText: String = "",

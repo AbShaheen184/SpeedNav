@@ -42,6 +42,8 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     // Track previously alerted camera IDs to avoid repetitive beeping for the same camera
     private val alertedCameraIds = mutableSetOf<Long>()
     private var lastOverspeedAlertTime = 0L
+    private var lastRerouteTime = 0L
+    private var isRerouting = false
 
     init {
         startLocationUpdates()
@@ -190,6 +192,82 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                 remainingDurationSeconds = remainingSecs,
                 etaFormatted = etaFormatted
             )
+        }
+
+        // While navigating: automatically get fresh location and update directions if off-route
+        val now = System.currentTimeMillis()
+        if (!isRerouting && now - lastRerouteTime > 15_000L) {
+            val isOffRoute = isUserOffRoute(point, route.waypoints)
+            if (isOffRoute) {
+                recalculateRouteFromCurrentLocation(point)
+            }
+        }
+    }
+
+    private fun isUserOffRoute(point: LocationPoint, waypoints: List<Pair<Double, Double>>): Boolean {
+        if (waypoints.isEmpty()) return false
+        val results = FloatArray(1)
+        var minDistance = Float.MAX_VALUE
+        for (wp in waypoints) {
+            Location.distanceBetween(point.latitude, point.longitude, wp.first, wp.second, results)
+            if (results[0] < minDistance) {
+                minDistance = results[0]
+            }
+            if (minDistance < 45f) return false
+        }
+        return minDistance > 65f
+    }
+
+    fun recalculateRoute() {
+        val currentLoc = _uiState.value.currentLocation ?: return
+        recalculateRouteFromCurrentLocation(currentLoc)
+    }
+
+    private fun recalculateRouteFromCurrentLocation(point: LocationPoint) {
+        val dest = _uiState.value.selectedDestination ?: _uiState.value.currentRoute?.let { route ->
+            val last = route.waypoints.lastOrNull()
+            if (last != null) {
+                SearchLocation(
+                    title = route.destinationName ?: "Destination",
+                    subtitle = "",
+                    latitude = last.first,
+                    longitude = last.second
+                )
+            } else null
+        } ?: return
+
+        isRerouting = true
+        lastRerouteTime = System.currentTimeMillis()
+        viewModelScope.launch {
+            _uiState.update { it.copy(statusMessage = "Updating directions from current location...") }
+            try {
+                val newRoute = repository.getRoute(point.latitude, point.longitude, dest.latitude, dest.longitude)
+                if (newRoute != null) {
+                    val enriched = newRoute.copy(destinationName = dest.title)
+                    val firstStep = enriched.steps.firstOrNull()
+                    val secondStep = if (enriched.steps.size > 1) enriched.steps[1] else null
+                    val etaMs = System.currentTimeMillis() + (enriched.durationSeconds * 1000).toLong()
+                    val etaFormatted = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(etaMs))
+
+                    _uiState.update {
+                        it.copy(
+                            currentRoute = enriched,
+                            currentStepIndex = 0,
+                            currentStep = firstStep,
+                            nextStep = secondStep,
+                            distanceToNextManeuverMeters = firstStep?.distanceMeters,
+                            remainingDistanceMeters = enriched.totalDistanceMeters,
+                            remainingDurationSeconds = enriched.durationSeconds,
+                            etaFormatted = etaFormatted,
+                            statusMessage = "Updated navigation path"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                // Graceful fallback
+            } finally {
+                isRerouting = false
+            }
         }
     }
 
@@ -389,19 +467,84 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
 
     /**
      * User clicks "Start Navigation" button:
-     * Enters full Google Maps style active navigation mode!
+     * 1. Obtains the most accurate current location first.
+     * 2. Re-queries directions from the current location to destination.
+     * 3. Sets the updated navigation path and begins active turn-by-turn guidance.
      */
     fun startNavigation() {
-        val route = _uiState.value.currentRoute
-        if (route == null) return
+        val dest = _uiState.value.selectedDestination ?: _uiState.value.currentRoute?.let { route ->
+            val last = route.waypoints.lastOrNull()
+            if (last != null) {
+                SearchLocation(
+                    title = route.destinationName ?: "Destination",
+                    subtitle = "",
+                    latitude = last.first,
+                    longitude = last.second
+                )
+            } else null
+        } ?: return
 
-        _uiState.update {
-            it.copy(
-                isNavigating = true,
-                isRoutePreviewShowing = false,
-                isFollowMode = true,
-                statusMessage = "Navigation started. Follow route."
-            )
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isNavigating = true,
+                    isRoutePreviewShowing = false,
+                    isFollowMode = true,
+                    isRouteLoading = true,
+                    recenterTrigger = System.currentTimeMillis(),
+                    statusMessage = "Locating GPS & calculating fresh route..."
+                )
+            }
+
+            // 1. Get current location first
+            val freshLocation = locationManager.getCurrentLocation() ?: _uiState.value.currentLocation
+            if (freshLocation != null) {
+                _uiState.update { it.copy(currentLocation = freshLocation) }
+            }
+
+            val startLat = freshLocation?.latitude ?: _uiState.value.currentLocation?.latitude ?: 51.5074
+            val startLon = freshLocation?.longitude ?: _uiState.value.currentLocation?.longitude ?: -0.1278
+
+            // 2. Again get directions to destination from this current location and use updated navigation path
+            try {
+                val freshRoute = repository.getRoute(startLat, startLon, dest.latitude, dest.longitude)
+                if (freshRoute != null) {
+                    val enriched = freshRoute.copy(destinationName = dest.title)
+                    val firstStep = enriched.steps.firstOrNull()
+                    val secondStep = if (enriched.steps.size > 1) enriched.steps[1] else null
+                    val etaMs = System.currentTimeMillis() + (enriched.durationSeconds * 1000).toLong()
+                    val etaFormatted = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(etaMs))
+
+                    _uiState.update {
+                        it.copy(
+                            currentRoute = enriched,
+                            currentStepIndex = 0,
+                            currentStep = firstStep,
+                            nextStep = secondStep,
+                            distanceToNextManeuverMeters = firstStep?.distanceMeters,
+                            remainingDistanceMeters = enriched.totalDistanceMeters,
+                            remainingDurationSeconds = enriched.durationSeconds,
+                            etaFormatted = etaFormatted,
+                            isRouteLoading = false,
+                            statusMessage = "Navigating to ${dest.title}"
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            isRouteLoading = false,
+                            statusMessage = "Navigation started. Following route."
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isRouteLoading = false,
+                        statusMessage = "Navigation active."
+                    )
+                }
+            }
         }
     }
 
@@ -435,8 +578,44 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    /**
+     * Google Maps-style My Location action:
+     * Enables follow mode, triggers smooth camera gliding animation to current location,
+     * and refreshes GPS location instantly.
+     */
+    fun onMyLocationClicked() {
+        _uiState.update {
+            it.copy(
+                isFollowMode = true,
+                recenterTrigger = System.currentTimeMillis(),
+                statusMessage = "Centering on current location"
+            )
+        }
+        viewModelScope.launch {
+            val freshLoc = locationManager.getCurrentLocation()
+            if (freshLoc != null) {
+                _uiState.update {
+                    it.copy(
+                        currentLocation = freshLoc,
+                        recenterTrigger = System.currentTimeMillis()
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Called when user touches and drags/pans the map.
+     * Pauses follow mode so user can freely explore, like in Google Maps.
+     */
+    fun onMapPanned() {
+        if (_uiState.value.isFollowMode) {
+            _uiState.update { it.copy(isFollowMode = false) }
+        }
+    }
+
     fun toggleFollowMode() {
-        _uiState.update { it.copy(isFollowMode = !it.isFollowMode) }
+        onMyLocationClicked()
     }
 
     fun toggleDarkMapTheme() {
