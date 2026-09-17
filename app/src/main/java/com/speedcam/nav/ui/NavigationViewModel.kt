@@ -11,8 +11,10 @@ import com.speedcam.nav.data.model.LocationPoint
 import com.speedcam.nav.data.model.ManeuverType
 import com.speedcam.nav.data.model.NavigationRoute
 import com.speedcam.nav.data.model.NominatimAddress
+import com.speedcam.nav.data.model.ResolvedMapLink
 import com.speedcam.nav.data.model.SearchLocation
 import com.speedcam.nav.data.model.SpeedCameraNode
+import com.speedcam.nav.data.remote.GoogleMapsLinkResolver
 import com.speedcam.nav.data.repository.SavedLocationRepository
 import com.speedcam.nav.data.repository.SpeedNavRepository
 import com.speedcam.nav.ui.util.AlertSoundManager
@@ -344,6 +346,13 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     fun onSearchQueryChanged(query: String) {
         _uiState.update { it.copy(destinationText = query, isSearching = query.isNotBlank()) }
         searchJob?.cancel()
+
+        // Automatically detect if user pasted a Google Maps link or decimal coordinates into the search bar
+        if (GoogleMapsLinkResolver.isMapLinkOrCoordinates(query)) {
+            handleSharedMapInput(query)
+            return
+        }
+
         if (query.trim().length >= 2) {
             searchJob = viewModelScope.launch {
                 delay(280L) // Responsive debounce
@@ -563,6 +572,128 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                     statusMessage = "Saved '$title' to your locations"
                 )
             }
+        }
+    }
+
+    // Google Maps Shared Links handling
+    private var resolveSharedLinkJob: Job? = null
+
+    fun handleSharedMapInput(input: String) {
+        if (input.isBlank()) return
+        resolveSharedLinkJob?.cancel()
+
+        _uiState.update {
+            it.copy(
+                isResolvingSharedLink = true,
+                showSharedLinkSheet = true,
+                sharedLinkError = null,
+                sharedMapLink = null
+            )
+        }
+
+        resolveSharedLinkJob = viewModelScope.launch {
+            val userLat = _uiState.value.currentLocation?.latitude
+            val userLon = _uiState.value.currentLocation?.longitude
+
+            try {
+                val resolved = GoogleMapsLinkResolver.resolve(
+                    input = input,
+                    userLat = userLat,
+                    userLon = userLon,
+                    geocodeSearch = { query ->
+                        repository.searchPlaces(query, userLat, userLon, null).firstOrNull()
+                    },
+                    reverseGeocode = { lat, lon ->
+                        val addr = repository.reverseGeocode(lat, lon)
+                        val parts = listOfNotNull(
+                            addr?.road ?: addr?.neighbourhood,
+                            addr?.city ?: addr?.town ?: addr?.village ?: addr?.suburb,
+                            addr?.state,
+                            addr?.country
+                        )
+                        if (parts.isNotEmpty()) parts.joinToString(", ") else null
+                    }
+                )
+
+                if (resolved != null) {
+                    _uiState.update {
+                        it.copy(
+                            sharedMapLink = resolved,
+                            isResolvingSharedLink = false,
+                            sharedLinkError = null,
+                            destinationText = resolved.title,
+                            // Immediately position a dropped pin for instant visual feedback on the map
+                            droppedPin = DroppedPinLocation(
+                                latitude = resolved.latitude,
+                                longitude = resolved.longitude,
+                                title = resolved.title,
+                                subtitle = resolved.subtitle,
+                                distanceMeters = resolved.distanceMeters,
+                                isResolvingAddress = false
+                            )
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            isResolvingSharedLink = false,
+                            sharedLinkError = "Could not find coordinates or place in this link."
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isResolvingSharedLink = false,
+                        sharedLinkError = "Error parsing link: ${e.localizedMessage ?: "Unknown error"}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun dismissSharedLinkSheet() {
+        _uiState.update { it.copy(showSharedLinkSheet = false) }
+    }
+
+    fun startRouteToResolvedLink(link: ResolvedMapLink) {
+        _uiState.update { it.copy(showSharedLinkSheet = false) }
+        selectDestination(link.toSearchLocation())
+    }
+
+    fun saveResolvedLocation(link: ResolvedMapLink, customName: String? = null, category: String = "FAVORITE") {
+        val name = customName?.ifBlank { null } ?: link.title
+        viewModelScope.launch {
+            savedLocationRepository.saveLocation(
+                title = name,
+                subtitle = link.subtitle,
+                latitude = link.latitude,
+                longitude = link.longitude,
+                category = category
+            )
+            _uiState.update {
+                it.copy(
+                    showSharedLinkSheet = false,
+                    statusMessage = "Saved '$name' to your locations"
+                )
+            }
+        }
+    }
+
+    fun showResolvedOnMap(link: ResolvedMapLink) {
+        _uiState.update {
+            it.copy(
+                showSharedLinkSheet = false,
+                droppedPin = DroppedPinLocation(
+                    latitude = link.latitude,
+                    longitude = link.longitude,
+                    title = link.title,
+                    subtitle = link.subtitle,
+                    distanceMeters = link.distanceMeters,
+                    isResolvingAddress = false
+                ),
+                showDroppedPinSheet = true
+            )
         }
     }
 

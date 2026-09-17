@@ -65,16 +65,26 @@ import com.speedcam.nav.ui.components.NavigationHudControls
 import com.speedcam.nav.ui.components.RoutePreviewCard
 import com.speedcam.nav.ui.components.SavedLocationsSheet
 import com.speedcam.nav.ui.components.SearchRouteBar
+import com.speedcam.nav.ui.components.SharedMapLinkSheet
 import com.speedcam.nav.ui.components.SpeedometerHUD
 import com.speedcam.nav.ui.components.TurnByTurnHeader
 
 @Composable
 fun HomeScreen(
     modifier: Modifier = Modifier,
+    incomingSharedLink: String? = null,
+    onSharedLinkConsumed: () -> Unit = {},
     viewModel: NavigationViewModel = viewModel()
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
+
+    LaunchedEffect(incomingSharedLink) {
+        if (!incomingSharedLink.isNullOrBlank()) {
+            viewModel.handleSharedMapInput(incomingSharedLink)
+            onSharedLinkConsumed()
+        }
+    }
 
     var hasLocationPermission by remember {
         mutableStateOf(
@@ -378,6 +388,22 @@ fun HomeScreen(
         onDirections = { viewModel.requestDirectionsToDroppedPin() },
         onSaveLocation = { name, category ->
             viewModel.saveDroppedPinLocation(name, category)
+        }
+    )
+
+    // Google Maps Shared Link Bottom Sheet (Navigate or Save)
+    SharedMapLinkSheet(
+        isOpen = uiState.showSharedLinkSheet,
+        resolvedLink = uiState.sharedMapLink,
+        isLoading = uiState.isResolvingSharedLink,
+        errorMessage = uiState.sharedLinkError,
+        onDismiss = { viewModel.dismissSharedLinkSheet() },
+        onNavigate = { link -> viewModel.startRouteToResolvedLink(link) },
+        onSaveLocation = { link, name, category ->
+            viewModel.saveResolvedLocation(link, name, category)
+        },
+        onShowOnMap = { link ->
+            viewModel.showResolvedOnMap(link)
         }
     )
 

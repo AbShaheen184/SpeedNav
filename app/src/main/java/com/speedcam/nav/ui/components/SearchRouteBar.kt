@@ -1,5 +1,8 @@
 package com.speedcam.nav.ui.components
 
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -28,6 +31,7 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Navigation
@@ -57,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -85,6 +90,7 @@ fun SearchRouteBar(
     modifier: Modifier = Modifier
 ) {
     var isExpanded by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Surface(
         modifier = modifier
@@ -271,6 +277,46 @@ fun SearchRouteBar(
                             Text(
                                 text = "Saved Places (${savedLocations.size})",
                                 color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // "Paste Link / Coords" Chip
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0xFF0F766E).copy(alpha = 0.35f),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                val clipText = clipboard?.primaryClip?.getItemAt(0)?.text?.toString()?.trim()
+                                if (!clipText.isNullOrBlank()) {
+                                    isExpanded = true
+                                    onDestinationChange(clipText)
+                                } else {
+                                    Toast.makeText(context, "Clipboard empty. Copy a Google Maps link or coordinates to paste.", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            .testTag("paste_map_link_chip")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Link,
+                                contentDescription = null,
+                                tint = Color(0xFF2DD4BF),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = "Paste Link",
+                                color = Color(0xFF2DD4BF),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold
                             )

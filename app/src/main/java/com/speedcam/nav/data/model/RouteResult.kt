@@ -143,6 +143,31 @@ data class DroppedPinLocation(
     }
 }
 
+data class ResolvedMapLink(
+    val originalInput: String,
+    val canonicalUrl: String? = null,
+    val latitude: Double,
+    val longitude: Double,
+    val title: String,
+    val subtitle: String = "",
+    val distanceMeters: Int? = null,
+    val isResolvingAddress: Boolean = false
+) {
+    fun toSearchLocation(): SearchLocation {
+        return SearchLocation(
+            title = title,
+            subtitle = subtitle.ifBlank { String.format(java.util.Locale.US, "%.5f, %.5f", latitude, longitude) },
+            latitude = latitude,
+            longitude = longitude,
+            distanceMeters = distanceMeters
+        )
+    }
+
+    fun formattedCoordinates(): String {
+        return String.format(java.util.Locale.US, "%.6f, %.6f", latitude, longitude)
+    }
+}
+
 enum class ManeuverType(val label: String) {
     DEPART("Head out"),
     STRAIGHT("Continue straight"),

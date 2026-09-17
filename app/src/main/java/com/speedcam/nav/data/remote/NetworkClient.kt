@@ -8,7 +8,7 @@ import java.util.concurrent.TimeUnit
 
 object NetworkClient {
 
-    private val okHttpClient: OkHttpClient by lazy {
+    val okHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .addInterceptor { chain ->
                 val request = chain.request().newBuilder()

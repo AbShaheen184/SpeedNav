@@ -5,6 +5,7 @@ import com.speedcam.nav.data.model.DroppedPinLocation
 import com.speedcam.nav.data.model.LocationPoint
 import com.speedcam.nav.data.model.NavigationRoute
 import com.speedcam.nav.data.model.NavigationStep
+import com.speedcam.nav.data.model.ResolvedMapLink
 import com.speedcam.nav.data.model.SearchLocation
 import com.speedcam.nav.data.model.SpeedCameraNode
 
@@ -39,6 +40,11 @@ data class NavigationUiState(
     // Dropped Pin (touch & hold on map)
     val droppedPin: DroppedPinLocation? = null,
     val showDroppedPinSheet: Boolean = false,
+    // Google Maps Shared Links
+    val sharedMapLink: ResolvedMapLink? = null,
+    val isResolvingSharedLink: Boolean = false,
+    val showSharedLinkSheet: Boolean = false,
+    val sharedLinkError: String? = null,
     // Navigation & Turn-by-Turn state
     val selectedDestination: SearchLocation? = null,
     val isRoutePreviewShowing: Boolean = false,
